@@ -163,6 +163,11 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
     pushKicoState(activeBook, currentSection)
   }, [activeBook?.id, currentSection])
 
+  // 换章后滚动到章节开头
+  useEffect(() => {
+    contentRef.current?.scrollTo(0, 0)
+  }, [currentSection])
+
   // 导入相关
   const [importTitle, setImportTitle] = useState('')
   const [rawText, setRawText] = useState('')
