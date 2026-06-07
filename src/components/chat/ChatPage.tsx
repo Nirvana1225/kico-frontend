@@ -17,6 +17,7 @@ export function ChatPage({ adapters, personaProfile, onClose, initialConversatio
   const [loading, setLoading] = useState(false)
   const [memoryEnabled, setMemoryEnabled] = useState(true)
   const [conversationId, setConversationId] = useState<string>('')
+  const [conversationTitle, setConversationTitle] = useState('')
   const [savingMemory, setSavingMemory] = useState(false)
   const [savedLabel, setSavedLabel] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -29,12 +30,14 @@ export function ChatPage({ adapters, personaProfile, onClose, initialConversatio
       if (existing) {
         setMessages(existing.messages)
         setConversationId(convId)
+        setConversationTitle(existing.title)
         return
       }
     }
     // 新建对话
     const conv = createConversation()
     setConversationId(conv.id)
+    setConversationTitle(conv.title)
     localStorage.setItem('kico_active_conv_id', conv.id)
   }, [initialConversationId])
 
@@ -166,7 +169,9 @@ export function ChatPage({ adapters, personaProfile, onClose, initialConversatio
     <div className="page-view">
       <div className="page-header">
         <button className="icon-btn" onClick={onClose}><ArrowLeft size={18} /></button>
-        <span>💬 长对话</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }} title={conversationTitle}>
+          {conversationTitle || '长对话'}
+        </span>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
           {savedLabel && <span style={{ color: 'var(--accent)', fontSize: 12 }}>{savedLabel}</span>}
           <button

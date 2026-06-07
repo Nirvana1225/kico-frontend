@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { BookOpen, Send, MessageCircle, ChevronLeft, ChevronRight, Plus, Trash2, Clock, Upload } from 'lucide-react'
+import { BookOpen, Send, MessageCircle, ChevronLeft, ChevronRight, Plus, Trash2, Clock, Upload, ExternalLink } from 'lucide-react'
 import type { CompanionAdapters, ConversationMessage, CompanionRequest, PersonaProfile } from '../types'
 import * as mammoth from 'mammoth'
+import { createConversation, appendConversationMessages, getConversation } from '../storage/conversations'
 
 const GATEWAY_URL = 'https://mr-blinds-hose.zeabur.app'
 
@@ -62,6 +63,7 @@ function pushKicoBooklist(books: BookRecord[]) {
 interface Props {
   adapters: CompanionAdapters
   personaProfile: PersonaProfile
+  onOpenChatWithConv?: (convId: string) => void
 }
 
 interface BookSection {
@@ -132,7 +134,7 @@ function migrateOldBook(): BookRecord | null {
   } catch { return null }
 }
 
-export function CoReadPage({ adapters, personaProfile }: Props) {
+export function CoReadPage({ adapters, personaProfile, onOpenChatWithConv }: Props) {
   // 书架状态
   const [bookshelf, setBookshelf] = useState<BookRecord[]>(() => {
     const shelf = loadBookshelf()
@@ -183,6 +185,26 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
   const [chatLoading, setChatLoading] = useState(false)
   const chatBottomRef = useRef<HTMLDivElement>(null)
   const chatInputRef = useRef<HTMLInputElement>(null)
+  const coreadConvIdRef = useRef<string>('')
+
+  // 初始化/切换书籍时，创建关联的 ConversationRecord
+  useEffect(() => {
+    if (!activeBook) return
+    const title = activeBook.title
+    // 用固定的 convId key 来存储此书的对话ID
+    const storedConvId = localStorage.getItem('kico_coread_conv_' + activeBook.id)
+    if (storedConvId) {
+      const existing = getConversation(storedConvId)
+      if (existing) {
+        coreadConvIdRef.current = storedConvId
+        return
+      }
+    }
+    // 创建新的关联对话
+    const conv = createConversation(`📖 共读 · ${title}`)
+    coreadConvIdRef.current = conv.id
+    localStorage.setItem('kico_coread_conv_' + activeBook.id, conv.id)
+  }, [activeBook?.id, activeBook?.title])
 
   // 划段讨论
   const selectedTextRef = useRef('')
@@ -238,6 +260,13 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
       saveChatHistory(activeBook.id, chatMessages)
     }
   }, [chatMessages, activeBook?.id])
+
+  // 同步共读聊天到 conversations 系统（让长对话页面也能看到）
+  useEffect(() => {
+    if (!coreadConvIdRef.current || chatMessages.length === 0) return
+    if (chatMessages[chatMessages.length - 1]?.text === '') return // 跳过流式占位
+    appendConversationMessages(coreadConvIdRef.current, chatMessages)
+  }, [chatMessages])
 
   // 自动滚动
   useEffect(() => {
@@ -686,6 +715,16 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
               <MessageCircle size={14} />
               <span>聊书</span>
               <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{activeBook.sections[currentSection]?.title}</span>
+              {coreadConvIdRef.current && (
+                <button
+                  className="icon-btn"
+                  onClick={() => onOpenChatWithConv?.(coreadConvIdRef.current)}
+                  title="在长对话中查看"
+                  style={{ marginLeft: 'auto' }}
+                >
+                  <ExternalLink size={14} />
+                </button>
+              )}
             </div>
             <div className="cinema-sidebar-body" style={{ display: 'flex', flexDirection: 'column' }}>
               {chatMessages.length === 0 ? (

@@ -34,6 +34,7 @@ export function App() {
   const [uplinkSettings, setUplinkSettings] = useState<UplinkSettings>(() => loadUplinkSettings())
   const [activePage, setActivePage] = useState<AppPage>('cinema')
   const [cinemaConvId, setCinemaConvId] = useState<string>('')
+  const [coreadConvId, setCoreadConvId] = useState<string>('')
 
   const activePersona = useMemo(() => getActivePersona(personaProfile), [personaProfile])
 
@@ -91,14 +92,18 @@ export function App() {
           />
         )}
         {activePage === 'coread' && (
-          <CoReadPage adapters={adapters} personaProfile={personaProfile} />
+          <CoReadPage
+            adapters={adapters}
+            personaProfile={personaProfile}
+            onOpenChatWithConv={(convId) => { setCoreadConvId(convId); setActivePage('chat'); }}
+          />
         )}
         {activePage === 'chat' && (
           <ChatPage
             adapters={adapters}
             personaProfile={personaProfile}
-            initialConversationId={cinemaConvId || undefined}
-            onClose={() => { setCinemaConvId(''); setActivePage('cinema'); }}
+            initialConversationId={cinemaConvId || coreadConvId || undefined}
+            onClose={() => { setCinemaConvId(''); setCoreadConvId(''); setActivePage('cinema'); }}
           />
         )}
         {activePage === 'auto' && (
