@@ -16,6 +16,8 @@ const TASK_LABELS: Record<string, string> = {
   heartbeat: '心跳',
   tide: '潮汐',
   diary: '日记',
+  'chat-summarize': '聊天总结',
+  cleanup: '记忆清理',
 }
 
 interface MemoryDetail {
