@@ -19,11 +19,14 @@ function pushKicoState(book: BookRecord | null, sectionIdx: number) {
         section_title: '',
         progress: 0.0,
       }),
-    }).catch(() => { /* 静默 */ })
+    }).catch(e => console.warn('[kico-push] state(off):', e))
     return
   }
   const section = book.sections[sectionIdx]
-  if (!section) return
+  if (!section) {
+    console.warn('[kico-push] no section at index', sectionIdx, 'sections:', book.sections.length)
+    return
+  }
   const progress = book.sections.length > 1 ? sectionIdx / (book.sections.length - 1) : 1.0
   fetch(`${GATEWAY_URL}/api/v1/kico/state`, {
     method: 'POST',
@@ -36,7 +39,8 @@ function pushKicoState(book: BookRecord | null, sectionIdx: number) {
       section_title: section.title,
       progress,
     }),
-  }).catch(() => { /* 静默 */ })
+  }).then(r => { if (!r.ok) console.warn('[kico-push] state status:', r.status) })
+    .catch(e => console.warn('[kico-push] state(on):', e))
 }
 
 /** 推送书架列表到网关缓存 */
@@ -51,7 +55,8 @@ function pushKicoBooklist(books: BookRecord[]) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(list),
-  }).catch(() => { /* 静默 */ })
+  }).then(r => { if (!r.ok) console.warn('[kico-push] booklist status:', r.status) })
+    .catch(e => console.warn('[kico-push] booklist:', e))
 }
 
 interface Props {
