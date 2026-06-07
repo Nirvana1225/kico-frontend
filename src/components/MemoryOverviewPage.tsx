@@ -87,53 +87,28 @@ export function MemoryOverviewPage({ onClose }: { onClose: () => void }) {
   const fetchMemories = useCallback(async (keyword: string, pageNum: number = 0) => {
     setLoading(true)
     try {
-      const method = keyword.trim() ? 'search_memories' : 'list_memories'
-      if (keyword.trim()) {
-        // 搜索：一次拉100条，前端分页
-        const res = await fetch(`${GATEWAY_URL}/mcp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0', id: 'mem-overview',
-            method: 'tools/call',
-            params: { name: method, arguments: { keyword: keyword.trim(), limit: 100 } },
-          }),
-        })
-        const data = await res.json()
-        const result = data?.result ?? []
-        const rawList = Array.isArray(result) ? result : []
-        setTotal(rawList.length)
-        setMemories(rawList.map((r: Record<string, unknown>, i: number) => ({
-          id: (r.id as string) || `mem-${i}`,
-          title: (r.category as string) || '记忆片段',
-          text: (r.content as string) || (r.text as string) || '',
-          score: r.importance ? (r.importance as number) / 5 : ((r.score as number) ?? 0),
-          source: r.source as string || 'ombrebrain',
-        })))
-      } else {
-        // 全览：按页请求后端分页
-        const offset = pageNum * PAGE_SIZE
-        const res = await fetch(`${GATEWAY_URL}/mcp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0', id: 'mem-overview',
-            method: 'tools/call',
-            params: { name: method, arguments: { limit: PAGE_SIZE, offset } },
-          }),
-        })
-        const data = await res.json()
-        const result = data?.result ?? {}
-        const rawList = (result.memories ?? []).map((r: Record<string, unknown>, i: number) => ({
-          id: (r.id as string) || `mem-${i}`,
-          title: (r.category as string) || '记忆片段',
-          text: (r.content as string) || (r.text as string) || '',
-          score: r.importance ? (r.importance as number) / 5 : ((r.score as number) ?? 0),
-          source: r.source as string || 'ombrebrain',
-        }))
-        setTotal(result.total ?? rawList.length)
-        setMemories(rawList)
-      }
+      const method = 'search_memories'  // MCP中没有list_memories，统一用search
+      // 搜索：一次拉100条，前端分页
+      const res = await fetch(`${GATEWAY_URL}/mcp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 'mem-overview',
+          method: 'tools/call',
+          params: { name: method, arguments: { keyword: keyword.trim() || '*', limit: 100 } },
+        }),
+      })
+      const data = await res.json()
+      const result = data?.result ?? []
+      const rawList = Array.isArray(result) ? result : []
+      setTotal(rawList.length)
+      setMemories(rawList.map((r: Record<string, unknown>, i: number) => ({
+        id: (r.id as string) || `mem-${i}`,
+        title: (r.category as string) || '记忆片段',
+        text: (r.content as string) || (r.text as string) || '',
+        score: r.importance ? (r.importance as number) / 5 : ((r.score as number) ?? 0),
+        source: r.source as string || 'ombrebrain',
+      })))
     } catch {
       setMemories([])
     } finally {
