@@ -143,7 +143,7 @@ export interface MemoryAdapter {
 }
 
 export interface CompanionRequest {
-  mode?: 'cinema' | 'chat' | 'plan'
+  mode?: 'cinema' | 'chat' | 'plan' | 'coread'
   cacheScope?: string
   userMessage: string
   watch: WatchContext

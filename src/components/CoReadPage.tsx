@@ -3,6 +3,57 @@ import { BookOpen, Send, MessageCircle, ChevronLeft, ChevronRight, Plus, Trash2,
 import type { CompanionAdapters, ConversationMessage, CompanionRequest, PersonaProfile } from '../types'
 import * as mammoth from 'mammoth'
 
+const GATEWAY_URL = 'https://mr-blinds-hose.zeabur.app'
+
+/** 推送当前阅读状态到网关缓存 */
+function pushKicoState(book: BookRecord | null, sectionIdx: number) {
+  if (!book) {
+    fetch(`${GATEWAY_URL}/api/v1/kico/state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        active: false,
+        book_id: '',
+        book_title: '',
+        section_index: 0,
+        section_title: '',
+        progress: 0.0,
+      }),
+    }).catch(() => { /* 静默 */ })
+    return
+  }
+  const section = book.sections[sectionIdx]
+  if (!section) return
+  const progress = book.sections.length > 1 ? sectionIdx / (book.sections.length - 1) : 1.0
+  fetch(`${GATEWAY_URL}/api/v1/kico/state`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      active: true,
+      book_id: book.id,
+      book_title: book.title,
+      section_index: sectionIdx,
+      section_title: section.title,
+      progress,
+    }),
+  }).catch(() => { /* 静默 */ })
+}
+
+/** 推送书架列表到网关缓存 */
+function pushKicoBooklist(books: BookRecord[]) {
+  const list = books.map(b => ({
+    id: b.id,
+    title: b.title,
+    author: '',
+    cover: '',
+  }))
+  fetch(`${GATEWAY_URL}/api/v1/kico/booklist`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(list),
+  }).catch(() => { /* 静默 */ })
+}
+
 interface Props {
   adapters: CompanionAdapters
   personaProfile: PersonaProfile
@@ -24,6 +75,23 @@ interface BookRecord {
 }
 
 const BOOKSHELF_KEY = 'kico_bookshelf'
+const CHAT_PREFIX = 'kico_coread_chat_'
+
+function loadChatHistory(bookId: string): ConversationMessage[] {
+  try {
+    const raw = localStorage.getItem(CHAT_PREFIX + bookId)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return []
+}
+
+function saveChatHistory(bookId: string, messages: ConversationMessage[]) {
+  if (messages.length === 0) {
+    localStorage.removeItem(CHAT_PREFIX + bookId)
+  } else {
+    localStorage.setItem(CHAT_PREFIX + bookId, JSON.stringify(messages))
+  }
+}
 
 // 从 localStorage 读取书架
 function loadBookshelf(): BookRecord[] {
@@ -85,6 +153,16 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
     if (activeBook) setCurrentSection(activeBook.currentSection)
   }, [activeBook?.id])
 
+  // 推送书架列表到网关
+  useEffect(() => {
+    pushKicoBooklist(bookshelf)
+  }, [bookshelf])
+
+  // 推送阅读状态到网关：书籍/章节切换时
+  useEffect(() => {
+    pushKicoState(activeBook, currentSection)
+  }, [activeBook?.id, currentSection])
+
   // 导入相关
   const [importTitle, setImportTitle] = useState('')
   const [rawText, setRawText] = useState('')
@@ -96,11 +174,12 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
   const chatBottomRef = useRef<HTMLDivElement>(null)
   const chatInputRef = useRef<HTMLInputElement>(null)
 
-  // 划段讨论（ref方案：避免selectionchange抢先清空导致点击失效）
+  // 划段讨论
   const selectedTextRef = useRef('')
   const selectionPosRef = useRef({ x: 0, y: 0 })
   const [showChatBtn, setShowChatBtn] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
+  const btnLockedRef = useRef(false) // 点击按钮时锁定，不让selectionchange清空ref
 
   // 文件上传
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -134,6 +213,21 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
     // 重置 input 以便重复选择同一文件
     e.target.value = ''
   }, [])
+
+  // 自动保存聊天记录
+  const prevBookIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!activeBook) return
+    // 当切换书籍时，保存旧书的聊天
+    if (prevBookIdRef.current && prevBookIdRef.current !== activeBook.id) {
+      // 已在上一步通过 setChatMessages(loadChatHistory(newId)) 切换，不额外保存
+    }
+    prevBookIdRef.current = activeBook.id
+    // 自动保存当前聊天（排除消息为空、结尾是空消息的流式状态）
+    if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].text !== '') {
+      saveChatHistory(activeBook.id, chatMessages)
+    }
+  }, [chatMessages, activeBook?.id])
 
   // 自动滚动
   useEffect(() => {
@@ -195,6 +289,7 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
 
   // 删除书籍
   const handleDeleteBook = useCallback((id: string) => {
+    saveChatHistory(id, []) // 清理聊天记录
     const updated = bookshelf.filter(b => b.id !== id)
     setBookshelf(updated)
     saveBookshelf(updated)
@@ -218,6 +313,8 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
   // 返回书架
   const backToShelf = useCallback(() => {
     if (activeBook) {
+      // 保存当前书籍的聊天记录
+      saveChatHistory(activeBook.id, chatMessages)
       const updated = bookshelf.map(b =>
         b.id === activeBook.id ? { ...b, lastReadAt: Date.now() } : b
       )
@@ -226,7 +323,7 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
     }
     setActiveBookId(null)
     setChatMessages([])
-  }, [activeBook, bookshelf])
+  }, [activeBook, bookshelf, chatMessages])
 
   // 发送聊书消息（底层，不经延迟）
   const doSend = useCallback(async (text: string, extraContext?: string) => {
@@ -248,7 +345,7 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
         : ''
 
       const request: CompanionRequest = {
-        mode: 'chat',
+        mode: 'coread',
         userMessage: text + (extraContext || '') + sectionContext,
         personaCore,
         userContext,
@@ -290,6 +387,8 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
       }])
     } finally {
       setChatLoading(false)
+      // 发消息后刷新阅读状态时间戳
+      pushKicoState(activeBook, currentSection)
     }
   }, [chatLoading, activeBook, currentSection, chatMessages, adapters])
 
@@ -356,9 +455,10 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
     return () => clearDelayTimer()
   }, [])
 
-  // 划段讨论：选中文字后弹出"聊这段"（ref方案，防止selectionchange抢先清空）
+  // 划段讨论：选中文字后弹出"聊这段"
   useEffect(() => {
     const handler = () => {
+      if (btnLockedRef.current) return // 按钮点击锁定中，跳过清空
       const sel = window.getSelection()
       const text = sel?.toString().trim()
       if (text && text.length > 0 && text.length < 2000 && contentRef.current?.contains(sel?.anchorNode as Node)) {
@@ -380,12 +480,14 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
     return () => document.removeEventListener('selectionchange', handler)
   }, [])
 
-  // 聊这段：直接从ref取文本，不受selectionchange影响
+  // 聊这段：引用原文 + 用户自己补充
   const handleChatSelection = useCallback(() => {
     const text = selectedTextRef.current
+    btnLockedRef.current = false
     if (!text) return
-    const preview = text.length > 80 ? text.slice(0, 80) + '…' : text
-    setChatInput(`关于「${preview}」`)
+    // 引用格式：> 原文 + 换行 + 用户光标输入
+    const preview = text.length > 120 ? text.slice(0, 120) + '…' : text
+    setChatInput(`> ${preview}\n\n`)
     selectedTextRef.current = ''
     setShowChatBtn(false)
     chatInputRef.current?.focus()
@@ -433,7 +535,7 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
                   key={book.id}
                   className="settings-card"
                   style={{ cursor: 'pointer', transition: 'border-color 0.2s', border: '1px solid var(--border)' }}
-                  onClick={() => { setActiveBookId(book.id); setChatMessages([]) }}
+                  onClick={() => { setActiveBookId(book.id); setChatMessages(loadChatHistory(book.id)) }}
                 >
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -543,6 +645,7 @@ export function CoReadPage({ adapters, personaProfile }: Props) {
               {/* 划段讨论浮动按钮 */}
               {showChatBtn && (
                 <button
+                  onPointerDown={() => { btnLockedRef.current = true }}
                   onClick={handleChatSelection}
                   style={{
                     position: 'fixed',
