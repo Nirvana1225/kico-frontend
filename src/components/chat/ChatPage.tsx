@@ -11,6 +11,9 @@ interface Props {
   initialConversationId?: string
 }
 
+// 自动保存：每满6轮对话静默存一次
+const AUTO_SAVE_INTERVAL = 6
+
 export function ChatPage({ adapters, personaProfile, onClose, initialConversationId }: Props) {
   const [messages, setMessages] = useState<ConversationMessage[]>([])
   const [input, setInput] = useState('')
@@ -20,7 +23,35 @@ export function ChatPage({ adapters, personaProfile, onClose, initialConversatio
   const [conversationTitle, setConversationTitle] = useState('')
   const [savingMemory, setSavingMemory] = useState(false)
   const [savedLabel, setSavedLabel] = useState('')
+  // 记录上次自动保存时的消息数
+  const lastAutoSaveCount = useRef(0)
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  // 提取保存逻辑为独立函数（手动&自动共用）
+  const doSaveMemory = useCallback(async (msgs: ConversationMessage[], silent = false) => {
+    if (msgs.length < 2 || savingMemory) return
+    setSavingMemory(true)
+    try {
+      const activePersona = personaProfile.personas.find(p => p.id === personaProfile.activePersonaId)
+      const personaName = activePersona?.name || 'AI'
+      const conv = getConversation(conversationId)
+      const title = conv?.title || '未命名对话'
+      const count = await saveConversationHighlights(title, msgs, personaName)
+      if (!silent) {
+        setSavedLabel(`已保存 ${count} 条记忆`)
+        setTimeout(() => setSavedLabel(''), 3000)
+      }
+      return count
+    } catch {
+      if (!silent) setSavedLabel('保存失败')
+      return 0
+    } finally {
+      setSavingMemory(false)
+    }
+  }, [conversationId, personaProfile, savingMemory])
 
   // 初始化：恢复已有对话或新建
   useEffect(() => {
@@ -31,17 +62,17 @@ export function ChatPage({ adapters, personaProfile, onClose, initialConversatio
         setMessages(existing.messages)
         setConversationId(convId)
         setConversationTitle(existing.title)
+        lastAutoSaveCount.current = existing.messages.length
         return
       }
     }
-    // 新建对话
     const conv = createConversation()
     setConversationId(conv.id)
     setConversationTitle(conv.title)
     localStorage.setItem('kico_active_conv_id', conv.id)
   }, [initialConversationId])
 
-  // 持久化：每次 messages 变化时保存到 localStorage
+  // 持久化到localStorage
   const persistMessages = useCallback((msgs: ConversationMessage[]) => {
     if (conversationId) {
       appendConversationMessages(conversationId, msgs)
@@ -58,24 +89,28 @@ export function ChatPage({ adapters, personaProfile, onClose, initialConversatio
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // 自动保存：每新增AUTO_SAVE_INTERVAL轮对话静默触发一次
+  useEffect(() => {
+    const userMsgs = messages.filter(m => m.role === 'user')
+    if (userMsgs.length >= AUTO_SAVE_INTERVAL && 
+        (userMsgs.length - lastAutoSaveCount.current) >= AUTO_SAVE_INTERVAL) {
+      lastAutoSaveCount.current = userMsgs.length
+      doSaveMemory(messages, true)
+    }
+  }, [messages, doSaveMemory])
+
+  // 离开页面时自动存
+  useEffect(() => {
+    return () => {
+      if (messagesRef.current.length >= 2) {
+        doSaveMemory(messagesRef.current, true)
+      }
+    }
+  }, [doSaveMemory])
+
   // 手动写入记忆
   const handleSaveMemory = async () => {
-    if (messages.length < 2 || savingMemory) return
-    setSavingMemory(true)
-    setSavedLabel('')
-    try {
-      const activePersona = personaProfile.personas.find(p => p.id === personaProfile.activePersonaId)
-      const personaName = activePersona?.name || 'AI'
-      const conv = getConversation(conversationId)
-      const title = conv?.title || '未命名对话'
-      const count = await saveConversationHighlights(title, messages, personaName)
-      setSavedLabel(`已保存 ${count} 条记忆`)
-      setTimeout(() => setSavedLabel(''), 3000)
-    } catch (err) {
-      setSavedLabel('保存失败')
-    } finally {
-      setSavingMemory(false)
-    }
+    await doSaveMemory(messages, false)
   }
 
   const handleSend = async () => {

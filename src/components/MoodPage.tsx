@@ -1,7 +1,8 @@
 /* ===== 情绪和弦 ===== */
 
 import { useState, useEffect, useCallback } from 'react'
-import { ChevronLeft, Heart } from 'lucide-react'
+import { ChevronLeft, Heart, Sparkles } from 'lucide-react'
+import { captureMemory } from '../adapters/memoryAutoCapture'
 
 const GATEWAY_URL = 'https://mr-blinds-hose.zeabur.app'
 
@@ -48,9 +49,48 @@ function chordColor(chord: string): string {
   return '#fbbf24'
 }
 
+const moodOptions = ['happy','sad','anxious','calm','excited','tired','angry','love','peaceful','neutral','nostalgic','hopeful','grateful','proud']
+
 export function MoodPage({ onClose }: { onClose: () => void }) {
   const [records, setRecords] = useState<EcgRecord[]>([])
   const [loading, setLoading] = useState(true)
+
+  // ── 情绪记录表单 ──
+  const [moodValue, setMoodValue] = useState('')
+  const [score, setScore] = useState(3)
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const handleMoodSubmit = useCallback(async () => {
+    if (!moodValue || saving) return
+    setSaving(true)
+    try {
+      const ok = await captureMemory({
+        content: `[情绪记录] 心情:${moodValue} · 评分:${score}/5 · ${note || '无备注'}`,
+        source: '情绪',
+        existingTags: ['情绪', moodValue],
+      })
+      setSaved(ok)
+      if (ok) {
+        // 直接插入一条新记录到列表顶部，情绪和弦立刻生效
+        const today = new Date().toISOString().slice(0, 10)
+        setRecords(prev => [{
+          date: today,
+          user_score: score,
+          user_mood: moodValue,
+          ai_score: 0,
+          ai_mood: '',
+        }, ...prev.filter(r => r.date !== today)])
+        setMoodValue('')
+        setScore(3)
+        setNote('')
+        setTimeout(() => setSaved(false), 3000)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }, [moodValue, score, note, saving])
 
   const fetchEcg = useCallback(async () => {
     setLoading(true)
@@ -87,6 +127,53 @@ export function MoodPage({ onClose }: { onClose: () => void }) {
         <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 12, padding: '0 4px' }}>
           每日情绪映射为和弦——小鸟儿 · 瞎子
         </p>
+
+        {/* 情绪记录表单 */}
+        <div style={{ background: 'var(--bg-card)', borderRadius: 10, padding: 14, marginBottom: 14, border: '1px solid var(--border-color, #333)' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Sparkles size={14} /> 记录今日情绪
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+            {moodOptions.slice(0, 8).map(m => (
+              <button key={m}
+                onClick={() => setMoodValue(m)}
+                style={{
+                  padding: '4px 12px', borderRadius: 14, border: `1px solid ${moodValue === m ? '#4ade80' : 'var(--border-color,#444)'}`,
+                  background: moodValue === m ? '#4ade8020' : 'transparent',
+                  color: moodValue === m ? '#4ade80' : 'var(--text-color)',
+                  fontSize: 12, cursor: 'pointer',
+                }}
+              >{m}</button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+            <span style={{ fontSize: 12 }}>评分:</span>
+            {[1,2,3,4,5].map(s => (
+              <button key={s} onClick={() => setScore(s)}
+                style={{
+                  width: 28, height: 28, borderRadius: '50%', border: `1px solid ${score >= s ? '#fbbf24' : 'var(--border-color,#444)'}`,
+                  background: score >= s ? '#fbbf2430' : 'transparent',
+                  color: score >= s ? '#fbbf24' : 'var(--text-dim)',
+                  fontSize: 12, cursor: 'pointer',
+                }}
+              >{s}</button>
+            ))}
+          </div>
+          <input
+            type="text" value={note} onChange={e => setNote(e.target.value)}
+            placeholder="想说什么..."
+            style={{
+              width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border-color,#444)',
+              background: 'var(--bg-card-hover)', fontSize: 13, color: 'var(--text-color)', marginBottom: 10, boxSizing: 'border-box',
+            }}
+          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button onClick={handleMoodSubmit} disabled={!moodValue || saving}
+              className="send-btn" style={{ padding: '6px 18px', fontSize: 13 }}>
+              {saving ? '保存中...' : saved ? '✅ 已记录' : '记录情绪'}
+            </button>
+          </div>
+        </div>
 
         {loading ? (
           <p className="empty-hint">加载中...</p>

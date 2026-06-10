@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { MessageCircle, UserRound, Database, Play, ExternalLink, Send } from 'lucide-react'
 import type { CompanionAdapters, ConversationMessage, CompanionRequest, PersonaProfile } from '../types'
 import { createConversation, appendConversationMessages, getConversation } from '../storage/conversations'
+import { captureWatchSession } from '../adapters/memoryAutoCapture'
 
 interface Props {
   adapters: CompanionAdapters
@@ -277,9 +278,55 @@ export function CinemaRoom({ adapters, personaProfile, onOpenChat, onOpenChatWit
     }
   }
 
-  // 组件卸载时清理定时器
+  // ── 观影归档：关闭/切换/离开时自动捕捉记忆 ──
+  const latestFrameRef = useRef(frameSource)
+  const latestMessagesRef = useRef(cinemaMessages)
+  const latestVisibleRef = useRef(frameVisible)
+  const archiveCalledRef = useRef(false)
+
+  useEffect(() => { latestFrameRef.current = frameSource }, [frameSource])
+  useEffect(() => { latestMessagesRef.current = cinemaMessages }, [cinemaMessages])
+  useEffect(() => { latestVisibleRef.current = frameVisible }, [frameVisible])
+
+  const archiveWatchSession = useCallback(async () => {
+    const src = latestFrameRef.current
+    const msgs = latestMessagesRef.current
+    if (!src || msgs.length < 2) return
+    if (archiveCalledRef.current) return
+    archiveCalledRef.current = true
+
+    const highlights = msgs
+      .filter(m => m.text.length > 15)
+      .slice(-6)
+      .map(m => `${m.role === 'user' ? '🐦' : '🕶️'}: ${m.text.slice(0, 100)}`)
+
+    await captureWatchSession(src.title, 'cinema', highlights, personaProfile.name)
+    archiveCalledRef.current = false
+  }, [personaProfile.name])
+
+  // 关闭视频时归档
   useEffect(() => {
-    return () => clearCinemaDelay()
+    if (!frameVisible && latestVisibleRef.current && frameSource) {
+      archiveWatchSession()
+    }
+  }, [frameVisible, frameSource, archiveWatchSession])
+
+  // 切换视频时归档旧视频
+  useEffect(() => {
+    if (frameSource && prevVideoRef.current && prevVideoRef.current !== frameSource.title) {
+      // 旧视频内容已在上一个 frameVisible false 时归档了
+    }
+  }, [frameSource])
+
+  // 组件卸载时归档
+  useEffect(() => {
+    return () => {
+      clearCinemaDelay()
+      if (latestFrameRef.current && latestVisibleRef.current) {
+        archiveWatchSession()
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (

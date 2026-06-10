@@ -1,8 +1,8 @@
-/* ===== 对话写入记忆库（OmbreBrain MCP） ===== */
+/* ===== 对话写入记忆库（Supabase REST API） ===== */
 
 import type { ConversationMessage } from '../types'
 
-const GATEWAY_URL = 'https://mr-blinds-hose.zeabur.app'
+const SUPABASE_URL = 'https://gixkmgrdeccsqgjdbzce.supabase.co/functions/v1/mcp-memory-gateway'
 
 export interface WriteMemoryParams {
   content: string
@@ -12,34 +12,54 @@ export interface WriteMemoryParams {
   mem_type?: 'anchor' | 'diary' | 'treasure' | 'message'
 }
 
-/** 向 OmbreBrain 写入一条记忆 */
+async function supabasePost<T>(path: string, body: Record<string, unknown> = {}): Promise<T> {
+  const res = await fetch(`${SUPABASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const errText = await res.text()
+    throw new Error(`Supabase API ${path} error ${res.status}: ${errText}`)
+  }
+  return res.json()
+}
+
+/** 向 Supabase 记忆库写入一条记忆 */
 export async function writeMemory(params: WriteMemoryParams): Promise<boolean> {
   try {
-    const res = await fetch(`${GATEWAY_URL}/mcp`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: crypto.randomUUID(),
-        method: 'tools/call',
-        params: {
-          name: 'create_memory',
-          arguments: {
-            content: params.content,
-            category: params.category || '对话记录',
-            importance: params.importance ?? 3,
-            tags: params.tags || [],
-            mem_type: params.mem_type || 'message',
-          },
-        },
-      }),
-    })
+    const body: Record<string, unknown> = {
+      content: params.content,
+      category: params.category || '对话记录',
+      importance: params.importance ?? 3,
+      mem_type: params.mem_type || 'message',
+      tags: JSON.stringify(params.tags || []),
+    }
 
-    const data = await res.json()
-    if (data.error) throw new Error(data.error.message)
-    return true
+    const result = await supabasePost('/api/create', body)
+    return !!result
   } catch (err) {
-    console.warn('OmbreBrain write failed:', err)
+    console.warn('Supabase memory write failed:', err)
+    return false
+  }
+}
+
+/** 更新已有记忆 */
+export async function updateMemory(memoryId: string, updates: { content?: string; importance?: number }): Promise<boolean> {
+  try {
+    const result = await supabasePost('/api/update', { memory_id: memoryId, ...updates })
+    return !!result
+  } catch {
+    return false
+  }
+}
+
+/** 删除记忆 */
+export async function deleteMemory(memoryId: string): Promise<boolean> {
+  try {
+    const result = await supabasePost('/api/delete', { memory_id: memoryId })
+    return result && typeof result === 'object' && 'success' in result
+  } catch {
     return false
   }
 }
